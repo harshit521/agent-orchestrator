@@ -7,7 +7,7 @@ TaskFleet is a browser-based multi-agent DevOps platform that allows developers 
 Instead of running one AI coding agent at a time, TaskFleet provides isolated workers, a common agent plugin interface, real-time task tracking, GitHub/CI integration, and a security gate for agent-generated code.
 
 Project: Semester Group Project
-Program: B.Tech CSE
+Program: B.Tech CS
 Institution: KIET Group of Institutions
 
 🚀 Problem Statement
