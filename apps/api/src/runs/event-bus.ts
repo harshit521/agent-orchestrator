@@ -2,9 +2,18 @@ import { EventEmitter } from "node:events";
 
 export type RunEventType =
   | "run.started"
+  | "workspace.created"
+  | "workspace.removed"
   | "agent.started"
+  | "agent.edit"
   | "run.progress"
   | "agent.progress"
+  | "test.started"
+  | "test.completed"
+  | "git.commit"
+  | "git.push"
+  | "github.pr.opened"
+  | "github.pr.skipped"
   | "agent.completed"
   | "agent.failed"
   | "run.completed"

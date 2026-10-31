@@ -32,6 +32,24 @@ export interface NewRunEvent {
   data?: unknown;
 }
 
+export interface RunWorkspace {
+  branch: string;
+  worktreePath: string;
+  baseBranch: string;
+}
+
+export interface RunGitMetadata {
+  commitSha?: string;
+  pullRequestUrl?: string;
+}
+
+export interface RunArtifactInput {
+  kind: string;
+  title?: string;
+  content?: string;
+  data?: unknown;
+}
+
 export interface AgentRunStats {
   agentId: string;
   totalRuns: number;
@@ -167,7 +185,10 @@ export class RunStore {
       include: {
         runs: {
           orderBy: { startedAt: "desc" },
-          include: { events: { orderBy: { createdAt: "asc" } } },
+          include: {
+            events: { orderBy: { createdAt: "asc" } },
+            artifacts: { orderBy: { createdAt: "asc" } },
+          },
         },
       },
     });
@@ -206,8 +227,23 @@ export class RunStore {
           },
         },
         events: { orderBy: { createdAt: "asc" } },
+        artifacts: { orderBy: { createdAt: "asc" } },
       },
     });
+  }
+
+  async findRunByBranch(branch: string) {
+    return this.#prisma.run.findFirst({
+      where: { branch },
+      select: { id: true, taskId: true, branch: true },
+      orderBy: { startedAt: "desc" },
+    });
+  }
+
+  async resolveTaskId(taskfleetId: string): Promise<string | null> {
+    const run = await this.findRunByBranch(`taskfleet/${taskfleetId}`);
+
+    return run?.taskId ?? null;
   }
 
   async listRuns(options: ListRunsOptions = {}) {
@@ -269,6 +305,54 @@ export class RunStore {
           ? { data: JSON.stringify(event.data) }
           : {}),
       },
+    });
+  }
+
+  async updateRunWorkspace(runId: string, workspace: RunWorkspace) {
+    return this.#prisma.run.update({
+      where: { id: runId },
+      data: {
+        branch: workspace.branch,
+        worktreePath: workspace.worktreePath,
+        baseBranch: workspace.baseBranch,
+      },
+    });
+  }
+
+  async updateRunGit(runId: string, metadata: RunGitMetadata) {
+    return this.#prisma.run.update({
+      where: { id: runId },
+      data: {
+        ...(metadata.commitSha !== undefined
+          ? { commitSha: metadata.commitSha }
+          : {}),
+        ...(metadata.pullRequestUrl !== undefined
+          ? { pullRequestUrl: metadata.pullRequestUrl }
+          : {}),
+      },
+    });
+  }
+
+  async addArtifact(runId: string, artifact: RunArtifactInput) {
+    return this.#prisma.runArtifact.create({
+      data: {
+        runId,
+        kind: artifact.kind,
+        ...(artifact.title !== undefined ? { title: artifact.title } : {}),
+        ...(artifact.content !== undefined
+          ? { content: artifact.content }
+          : {}),
+        ...(artifact.data !== undefined
+          ? { data: JSON.stringify(artifact.data) }
+          : {}),
+      },
+    });
+  }
+
+  async listArtifacts(runId: string) {
+    return this.#prisma.runArtifact.findMany({
+      where: { runId },
+      orderBy: { createdAt: "asc" },
     });
   }
 

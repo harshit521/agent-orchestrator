@@ -5,6 +5,7 @@ export interface PostJsonOptions {
   timeoutMs: number;
   retries?: number;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
 }
 
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
@@ -27,8 +28,15 @@ export async function postJson(
   const attempts = Math.max(1, (options.retries ?? 1) + 1);
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (options.signal?.aborted) {
+      throw new LLMError("LLM request was cancelled.", "LLM_CANCELLED");
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+    const signal = options.signal
+      ? AbortSignal.any([controller.signal, options.signal])
+      : controller.signal;
 
     try {
       const response = await fetchImpl(url, {
@@ -38,7 +46,7 @@ export async function postJson(
           ...options.headers,
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
+        signal,
       });
 
       if (!response.ok) {
@@ -60,6 +68,12 @@ export async function postJson(
     } catch (error: unknown) {
       if (error instanceof LLMError) {
         throw error;
+      }
+
+      const cancelled = options.signal?.aborted === true;
+
+      if (cancelled) {
+        throw new LLMError("LLM request was cancelled.", "LLM_CANCELLED");
       }
 
       if (attempt === attempts) {

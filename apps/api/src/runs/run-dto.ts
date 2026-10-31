@@ -26,3 +26,9 @@ export function eventToDto<T extends { data: string | null }>(
 ): Omit<T, "data"> & { data: unknown } {
   return { ...event, data: parseJson(event.data) };
 }
+
+export function artifactToDto<T extends { data: string | null }>(
+  artifact: T
+): Omit<T, "data"> & { data: unknown } {
+  return { ...artifact, data: parseJson(artifact.data) };
+}

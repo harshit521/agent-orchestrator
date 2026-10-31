@@ -10,6 +10,48 @@ export interface LLMRequest {
   messages: LLMMessage[];
   maxTokens?: number;
   temperature?: number;
+  signal?: AbortSignal;
+}
+
+export interface LLMToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface LLMToolCall {
+  id: string;
+  name: string;
+  /** Raw JSON string exactly as returned by the provider. */
+  arguments: string;
+}
+
+export type LLMToolMessage =
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; toolCalls?: LLMToolCall[] }
+  | {
+      role: "tool";
+      toolCallId: string;
+      content: string;
+      isError?: boolean;
+    };
+
+export interface LLMToolRequest {
+  system?: string;
+  messages: LLMToolMessage[];
+  tools: LLMToolDefinition[];
+  maxTokens?: number;
+  temperature?: number;
+  signal?: AbortSignal;
+}
+
+export interface LLMToolResponse {
+  text: string;
+  toolCalls: LLMToolCall[];
+  provider: string;
+  model: string;
+  usage?: LLMUsage;
+  finishReason?: string;
 }
 
 export interface LLMUsage {
@@ -29,6 +71,20 @@ export interface LLMProvider {
   readonly defaultModel: string;
 
   complete(request: LLMRequest): Promise<LLMResponse>;
+
+  /**
+   * Providers that can call structured tools implement this. The coding agent
+   * refuses to run rather than silently falling back to text-only completion.
+   */
+  chatWithTools?(request: LLMToolRequest): Promise<LLMToolResponse>;
+}
+
+export function supportsToolCalling(
+  provider: LLMProvider
+): provider is LLMProvider & {
+  chatWithTools(request: LLMToolRequest): Promise<LLMToolResponse>;
+} {
+  return typeof provider.chatWithTools === "function";
 }
 
 export interface LLMSettings {

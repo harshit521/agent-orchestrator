@@ -6,9 +6,18 @@ import { Badge, type BadgeTone } from "../ui/Badge";
 
 const TONES: Record<string, BadgeTone> = {
   "run.started": "info",
+  "workspace.created": "accent",
+  "workspace.removed": "neutral",
   "agent.started": "accent",
+  "agent.edit": "warning",
   "run.progress": "neutral",
   "agent.progress": "neutral",
+  "test.started": "info",
+  "test.completed": "info",
+  "git.commit": "success",
+  "git.push": "success",
+  "github.pr.opened": "success",
+  "github.pr.skipped": "warning",
   "agent.completed": "success",
   "agent.failed": "danger",
   "run.completed": "success",

@@ -209,6 +209,12 @@ export const api = {
 
     get: (runId: string) =>
       request<RunResponse>(`/runs/${encodeURIComponent(runId)}`),
+
+    cancel: (runId: string) =>
+      request<{ success: boolean; cancelled: boolean }>(
+        `/runs/${encodeURIComponent(runId)}/cancel`,
+        { method: "POST" }
+      ),
   },
 
   agents: {

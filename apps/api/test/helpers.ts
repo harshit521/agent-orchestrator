@@ -21,8 +21,26 @@ export function testConfig(
       maxTokens: 256,
       timeoutMs: 5_000,
     },
-    github: {},
-    worktrees: { enabled: false },
+    github: { baseBranch: "main" },
+    worktrees: {
+      enabled: false,
+      keepOnFailure: true,
+      keepOnSuccess: true,
+    },
+    agent: {
+      maxSteps: 10,
+      maxTokens: 10_000,
+      maxToolCalls: 20,
+      commandTimeoutMs: 30_000,
+      testTimeoutMs: 60_000,
+      runTests: true,
+      requireChanges: true,
+      commandAllowlist: ["npm", "npx", "node", "python3", "pytest", "go", "cargo"],
+    },
+    git: {
+      authorName: "TaskFleet Test",
+      authorEmail: "test@taskfleet.dev",
+    },
     security: { enabled: false },
   };
 }

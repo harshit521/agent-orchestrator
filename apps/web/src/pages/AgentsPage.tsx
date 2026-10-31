@@ -119,6 +119,12 @@ export function AgentsPage() {
                   </p>
 
                   <div className="flex flex-wrap items-center gap-1.5">
+                    {agent.requiresWorkspace ? (
+                      <Badge tone="accent">git worktree</Badge>
+                    ) : null}
+                    {agent.toolCalling ? (
+                      <Badge tone="info">tool calling</Badge>
+                    ) : null}
                     {agent.capabilities.map((capability) => (
                       <Badge key={capability} tone="neutral">
                         {capability}

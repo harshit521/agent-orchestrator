@@ -15,6 +15,7 @@ import type { Run, Task } from "../types";
 import { latestEvent, progressOf } from "../components/runs/EventTimeline";
 import { JsonBlock } from "../components/shared/JsonBlock";
 import { TaskDialog } from "../components/tasks/TaskDialog";
+import { WorkspaceSummary } from "../components/runs/WorkspacePanel";
 import { PriorityBadge, ProviderBadge, StatusBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
@@ -361,6 +362,7 @@ export function TaskDetailPage({ taskId }: { taskId: string }) {
                 label="result"
                 maxHeight="max-h-56"
               />
+              <WorkspaceSummary run={latestRun} />
             </div>
           ) : (
             <p className="px-4 py-6 text-center text-xs text-muted">

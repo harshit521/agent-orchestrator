@@ -13,6 +13,7 @@ import {
 import { hrefFor } from "../lib/router";
 import type { RunEvent } from "../types";
 import { EventTimeline, latestEvent, progressOf } from "../components/runs/EventTimeline";
+import { WorkspacePanel } from "../components/runs/WorkspacePanel";
 import { JsonBlock, TextBlock } from "../components/shared/JsonBlock";
 import { Badge, ProviderBadge, StatusBadge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
@@ -154,7 +155,9 @@ function SequenceStep({
 }
 
 export function RunDetailPage({ runId }: { runId: string }) {
-  const runQuery = useQuery(`run:${runId}`, () => api.runs.get(runId));
+  const runQuery = useQuery(`run:${runId}`, () => api.runs.get(runId), {
+    refreshInterval: 4_000,
+  });
   const agents = useQuery("agents", api.agents.list);
 
   const [events, setEvents] = useState<RunEvent[]>([]);
@@ -449,6 +452,8 @@ export function RunDetailPage({ runId }: { runId: string }) {
               </div>
             )}
           </Panel>
+
+          <WorkspacePanel run={run} />
 
           <Panel>
             <PanelHeader

@@ -12,6 +12,10 @@ export interface Agent {
   readonly capabilities: readonly string[];
   readonly providerId?: string;
   readonly model?: string;
+  /** True when RunService must create an isolated git worktree first. */
+  readonly requiresWorkspace?: boolean;
+  /** True when the agent can call model tools. */
+  readonly toolCalling?: boolean;
 
   run(
     input: AgentInput,

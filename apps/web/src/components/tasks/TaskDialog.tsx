@@ -148,6 +148,7 @@ export function TaskDialog({
   }
 
   const isEdit = mode === "edit";
+  const selectedAgent = agents.find((agent) => agent.id === agentId);
 
   return (
     <Dialog
@@ -256,7 +257,11 @@ export function TaskDialog({
             hint={
               agents.length === 0
                 ? "No agents are registered by the backend."
-                : undefined
+                : selectedAgent?.requiresWorkspace
+                  ? "Runs in an isolated git worktree, then diffs, tests, commits, and optionally opens a GitHub PR."
+                  : selectedAgent?.provider === "stub"
+                    ? "Offline stub provider: this agent does not call a live model."
+                    : undefined
             }
           >
             <Select

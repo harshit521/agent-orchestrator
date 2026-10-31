@@ -3,6 +3,8 @@ import { taskIdFromBranch } from "../worktrees/worktree-service.js";
 export interface WebhookStore {
   getTask(taskId: string): Promise<{ id: string } | null>;
   updateTaskStatus(taskId: string, status: string): Promise<unknown>;
+  /** Resolves a per-run `taskfleet/<runId>` branch back to its task. */
+  resolveTaskId?(taskfleetId: string): Promise<string | null>;
 }
 
 export interface WebhookResult {
@@ -113,11 +115,19 @@ export async function handleGithubWebhook(
 
   const task = await store.getTask(taskId);
 
-  if (!task) {
-    return { handled: false, taskId, reason: "Task not found." };
+  if (task) {
+    await store.updateTaskStatus(task.id, status);
+    return { handled: true, taskId: task.id, status };
   }
 
-  await store.updateTaskStatus(taskId, status);
+  if (store.resolveTaskId) {
+    const resolvedTaskId = await store.resolveTaskId(taskId);
 
-  return { handled: true, taskId, status };
+    if (resolvedTaskId) {
+      await store.updateTaskStatus(resolvedTaskId, status);
+      return { handled: true, taskId: resolvedTaskId, status };
+    }
+  }
+
+  return { handled: false, taskId, reason: "Task not found." };
 }

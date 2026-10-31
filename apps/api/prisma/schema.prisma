@@ -29,26 +29,47 @@ model Task {
 }
 
 model Run {
-  id           String    @id @default(cuid())
-  taskId       String
-  agentId      String
-  status       String
-  provider     String?
-  model        String?
-  output       String?
-  errorCode    String?
-  errorMessage String?
-  inputTokens  Int?
-  outputTokens Int?
-  startedAt    DateTime  @default(now())
-  completedAt  DateTime?
-  durationMs   Int?
+  id              String    @id @default(cuid())
+  taskId          String
+  agentId         String
+  status          String
+  provider        String?
+  model           String?
+  output          String?
+  errorCode       String?
+  errorMessage    String?
+  inputTokens     Int?
+  outputTokens    Int?
+  branch          String?
+  worktreePath    String?
+  commitSha       String?
+  pullRequestUrl  String?
+  baseBranch      String?
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  durationMs      Int?
 
-  task   Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  events RunEvent[]
+  task      Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  events    RunEvent[]
+  artifacts RunArtifact[]
 
   @@index([taskId])
   @@index([status])
+  @@index([branch])
+}
+
+model RunArtifact {
+  id        String   @id @default(cuid())
+  runId     String
+  kind      String
+  title     String?
+  content   String?
+  data      String?
+  createdAt DateTime @default(now())
+
+  run Run @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, kind])
 }
 
 model RunEvent {

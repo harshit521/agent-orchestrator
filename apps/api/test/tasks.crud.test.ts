@@ -193,8 +193,9 @@ describe("Task CRUD and dashboard endpoints", () => {
     expect(stats.statusCode).toBe(200);
     expect(stats.json()).toMatchObject({
       success: true,
-      agents: { total: 1 },
+      agents: { total: expect.any(Number) },
     });
+    expect(stats.json().agents.total).toBeGreaterThanOrEqual(1);
     expect(stats.json().tasks.total).toBeGreaterThanOrEqual(1);
     expect(stats.json().runs.total).toBeGreaterThanOrEqual(1);
     expect(stats.json().runs.completed).toBeGreaterThanOrEqual(1);

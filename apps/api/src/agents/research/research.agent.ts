@@ -68,6 +68,7 @@ export class ResearchAgent implements Agent {
       const response = await this.#provider.complete({
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: prompt }],
+        ...(context.signal ? { signal: context.signal } : {}),
       });
 
       report?.({

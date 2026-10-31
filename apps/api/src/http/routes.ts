@@ -10,7 +10,7 @@ import type {
   UpdateTaskInput,
 } from "../runs/run-store.js";
 import type { WorktreeService } from "../worktrees/worktree-service.js";
-import { eventToDto, parseJsonValue, runToDto } from "../runs/run-dto.js";
+import { eventToDto, artifactToDto, parseJsonValue, runToDto } from "../runs/run-dto.js";
 import {
   RunService,
   type StartTaskRequest,
@@ -30,14 +30,19 @@ export interface IntegrationStatus {
     provider: string;
     model: string | null;
     configured: boolean;
+    toolCalling: boolean;
+    live: boolean;
   };
   github: {
     repository: string | null;
     tokenConfigured: boolean;
     webhookConfigured: boolean;
+    prCreation: boolean;
+    baseBranch: string;
   };
   worktrees: {
     enabled: boolean;
+    root: string;
   };
   security: {
     enabled: boolean;
@@ -86,6 +91,8 @@ function agentToDto(agent: Agent, stats: AgentRunStats) {
     capabilities: agent.capabilities,
     provider: agent.providerId ?? null,
     model: agent.model ?? null,
+    requiresWorkspace: agent.requiresWorkspace ?? false,
+    toolCalling: agent.toolCalling ?? false,
     status: stats.activeRuns > 0 ? "running" : "idle",
     stats,
   };
@@ -290,6 +297,7 @@ export function registerRoutes(
           runs: task.runs.map((run) => ({
             ...runToDto(run),
             events: run.events.map(eventToDto),
+            artifacts: run.artifacts.map(artifactToDto),
           })),
         },
       };
@@ -448,8 +456,41 @@ export function registerRoutes(
         run: {
           ...runToDto(run),
           events: run.events.map(eventToDto),
+          artifacts: run.artifacts.map(artifactToDto),
         },
       };
+    }
+  );
+
+  app.post<{ Params: { runId: string } }>(
+    "/runs/:runId/cancel",
+    async (request, reply) => {
+      const run = await deps.store.getRun(request.params.runId);
+
+      if (!run) {
+        return reply
+          .status(404)
+          .send({ success: false, error: "Run not found." });
+      }
+
+      if (run.status !== "running") {
+        return reply.status(409).send({
+          success: false,
+          error: "The run has already finished.",
+        });
+      }
+
+      const cancelled = deps.runService.cancelRun(run.id);
+
+      if (!cancelled) {
+        return reply.status(409).send({
+          success: false,
+          error:
+            "The run is not active in this process and cannot be cancelled.",
+        });
+      }
+
+      return reply.status(202).send({ success: true, cancelled: true });
     }
   );
 

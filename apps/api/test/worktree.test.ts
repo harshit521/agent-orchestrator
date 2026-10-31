@@ -80,4 +80,50 @@ describe("WorktreeService", () => {
     expect(taskIdFromBranch("feature/nope")).toBeNull();
     expect(taskIdFromBranch("taskfleet/")).toBeNull();
   });
+
+  it("creates per-run worktrees, diffs, commits and resets changes", async () => {
+    const worktree = await service.ensureForRun("task-run", "run-one");
+
+    expect(worktree.branch).toBe("taskfleet/run-one");
+    expect(worktree.path).toBe(path.join(worktreesRoot, "run-one"));
+    expect(existsSync(path.join(worktree.path, "README.md"))).toBe(true);
+
+    writeFileSync(
+      path.join(worktree.path, "AGENT_CHANGE.md"),
+      "# agent change\n"
+    );
+    writeFileSync(path.join(worktree.path, "README.md"), "# changed\n");
+
+    const diff = await service.diff(worktree);
+
+    expect(diff.diff).toContain("AGENT_CHANGE.md");
+    expect(diff.diff).toContain("+# agent change");
+    expect(diff.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "AGENT_CHANGE.md", status: "added" }),
+        expect.objectContaining({ path: "README.md", status: "modified" }),
+      ])
+    );
+
+    const sha = await service.commit(worktree, "test commit");
+    expect(sha).toMatch(/^[0-9a-f]{40}$/);
+    expect((await service.status(worktree)).clean).toBe(true);
+
+    writeFileSync(path.join(worktree.path, "README.md"), "# dirty\n");
+    await service.reset(worktree);
+    expect((await service.status(worktree)).clean).toBe(true);
+
+    await service.remove(worktree);
+    expect(existsSync(worktree.path)).toBe(false);
+  });
+
+  it("refuses to remove a directory outside the worktrees root", async () => {
+    await expect(
+      service.remove({
+        taskId: "task-x",
+        branch: "taskfleet/task-x",
+        path: repository,
+      })
+    ).rejects.toThrow("outside the worktrees root");
+  });
 });

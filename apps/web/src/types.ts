@@ -12,9 +12,18 @@ export type RunStatus = "running" | "completed" | "failed";
 
 export type RunEventType =
   | "run.started"
+  | "workspace.created"
+  | "workspace.removed"
   | "agent.started"
+  | "agent.edit"
   | "run.progress"
   | "agent.progress"
+  | "test.started"
+  | "test.completed"
+  | "git.commit"
+  | "git.push"
+  | "github.pr.opened"
+  | "github.pr.skipped"
   | "agent.completed"
   | "agent.failed"
   | "run.completed"
@@ -36,6 +45,8 @@ export interface AgentSummary {
   capabilities: string[];
   provider: string | null;
   model: string | null;
+  requiresWorkspace?: boolean;
+  toolCalling?: boolean;
   status: "idle" | "running";
   stats: AgentRunStats;
 }
@@ -61,6 +72,22 @@ export interface RunTaskRef {
   agentId: string;
 }
 
+export interface RunArtifact {
+  id: string;
+  runId: string;
+  kind: string;
+  title: string | null;
+  content: string | null;
+  data: unknown;
+  createdAt: string;
+}
+
+export interface ChangedFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "copied" | "unknown";
+  previousPath?: string;
+}
+
 export interface Run {
   id: string;
   taskId: string;
@@ -73,11 +100,17 @@ export interface Run {
   errorMessage: string | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  branch: string | null;
+  worktreePath: string | null;
+  commitSha: string | null;
+  pullRequestUrl: string | null;
+  baseBranch: string | null;
   startedAt: string;
   completedAt: string | null;
   durationMs: number | null;
   task?: RunTaskRef;
   events?: RunEvent[];
+  artifacts?: RunArtifact[];
 }
 
 export interface Task {
@@ -185,14 +218,19 @@ export interface IntegrationsResponse {
     provider: string;
     model: string | null;
     configured: boolean;
+    toolCalling?: boolean;
+    live?: boolean;
   };
   github: {
     repository: string | null;
     tokenConfigured: boolean;
     webhookConfigured: boolean;
+    prCreation?: boolean;
+    baseBranch?: string;
   };
   worktrees: {
     enabled: boolean;
+    root?: string;
   };
   security: {
     enabled: boolean;
@@ -201,6 +239,7 @@ export interface IntegrationsResponse {
 
 export interface Worktree {
   taskId: string;
+  runId?: string;
   branch: string;
   path: string;
 }

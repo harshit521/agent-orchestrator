@@ -12,11 +12,12 @@ import { createAgentRegistry } from "./agents/index.js";
 import type { AgentRegistry } from "./agents/registry.js";
 import { loadConfig, type AppConfig } from "./config.js";
 import { createPrismaClient } from "./db/client.js";
+import { GitHubClient } from "./github/client.js";
 import { registerGithubRoutes } from "./http/github-routes.js";
 import { registerRoutes } from "./http/routes.js";
 import { registerSecurityRoutes } from "./http/security-routes.js";
 import { RunEventBus } from "./runs/event-bus.js";
-import { RunService } from "./runs/run-service.js";
+import { RunService, type GitHubIntegration } from "./runs/run-service.js";
 import { RunStore } from "./runs/run-store.js";
 import { SecurityScanner } from "./security/scanner.js";
 import { WorktreeService } from "./worktrees/worktree-service.js";
@@ -31,6 +32,10 @@ export interface BuildAppOptions {
   config?: AppConfig;
   /** Override the agent registry, mainly for tests. */
   agents?: AgentRegistry;
+  /** Override the worktree service, mainly for tests. */
+  worktreeService?: WorktreeService;
+  /** Override GitHub wiring: null disables it, undefined uses configuration. */
+  githubClient?: GitHubClient | null;
 }
 
 export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
@@ -38,7 +43,8 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const prisma = createPrismaClient(config.databaseUrl);
   const store = new RunStore(prisma);
   const events = new RunEventBus();
-  const agents = options.agents ?? createAgentRegistry(config.llm);
+  const agents =
+    options.agents ?? createAgentRegistry(config.llm, config.agent);
 
   const app = Fastify({
     logger: options.logger ?? true,
@@ -72,28 +78,72 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     });
   });
 
-  const runService = new RunService({
+  const worktreesRoot = config.worktrees.root
+    ? path.resolve(REPO_ROOT, config.worktrees.root)
+    : path.resolve(REPO_ROOT, ".taskfleet/worktrees");
+
+  const worktreeService =
+    options.worktreeService ??
+    new WorktreeService({
+      repoRoot: REPO_ROOT,
+      worktreesRoot,
+      authorName: config.git.authorName,
+      authorEmail: config.git.authorEmail,
+    });
+
+  const configuredGithub: GitHubIntegration | null =
+    config.github.token && config.github.repository
+      ? {
+          client: new GitHubClient({
+            token: config.github.token,
+            repository: config.github.repository,
+          }),
+          repository: config.github.repository,
+          baseBranch: config.github.baseBranch,
+          ...(config.github.remoteUrl
+            ? { remoteUrl: config.github.remoteUrl }
+            : {}),
+        }
+      : null;
+
+  const github =
+    options.githubClient === undefined
+      ? configuredGithub
+      : options.githubClient === null
+        ? null
+        : config.github.repository
+          ? {
+              client: options.githubClient,
+              repository: config.github.repository,
+              baseBranch: config.github.baseBranch,
+              ...(config.github.remoteUrl
+                ? { remoteUrl: config.github.remoteUrl }
+                : {}),
+            }
+          : null;
+
+  // Rebuild the service now that the worktree and GitHub dependencies exist.
+  const lifecycle = new RunService({
     store,
     agents,
     events,
     logger: app.log,
+    config,
+    worktrees: {
+      enabled: config.worktrees.enabled,
+      service: worktreeService,
+    },
+    github,
   });
-
-  const worktreesRoot = config.worktrees.root
-    ? path.resolve(REPO_ROOT, config.worktrees.root)
-    : path.resolve(REPO_ROOT, ".taskfleet/worktrees");
 
   const apiDeps = {
     agents,
     store,
     events,
-    runService,
+    runService: lifecycle,
     worktrees: {
       enabled: config.worktrees.enabled,
-      service: new WorktreeService({
-        repoRoot: REPO_ROOT,
-        worktreesRoot,
-      }),
+      service: worktreeService,
     },
     integrations: {
       llm: {
@@ -101,14 +151,19 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         model: config.llm.model ?? null,
         configured:
           config.llm.provider === "stub" || Boolean(config.llm.apiKey),
+        toolCalling: config.llm.provider !== "stub",
+        live: config.llm.provider !== "stub",
       },
       github: {
         repository: config.github.repository ?? null,
         tokenConfigured: Boolean(config.github.token),
         webhookConfigured: Boolean(config.github.webhookSecret),
+        prCreation: Boolean(github),
+        baseBranch: config.github.baseBranch,
       },
       worktrees: {
         enabled: config.worktrees.enabled,
+        root: worktreesRoot,
       },
       security: {
         enabled: config.security.enabled,

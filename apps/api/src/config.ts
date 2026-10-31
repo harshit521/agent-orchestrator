@@ -39,9 +39,56 @@ const envSchema = z.object({
       .optional()
   ),
   GITHUB_WEBHOOK_SECRET: optionalString,
+  GITHUB_BASE_BRANCH: z.string().trim().min(1).default("main"),
+  GITHUB_REMOTE_URL: optionalString,
 
-  WORKTREES_ENABLED: booleanFromEnv,
+  WORKTREES_ENABLED: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((value) => value === "true" || value === "1"),
   WORKTREES_ROOT: optionalString,
+  WORKTREE_KEEP_ON_FAILURE: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((value) => value === "true" || value === "1"),
+  WORKTREE_KEEP_ON_SUCCESS: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((value) => value === "true" || value === "1"),
+
+  AGENT_MAX_STEPS: z.coerce.number().int().min(1).max(100).default(20),
+  AGENT_MAX_TOKENS: z.coerce.number().int().positive().default(100_000),
+  AGENT_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(500).default(80),
+  AGENT_COMMAND_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(120_000),
+  AGENT_TEST_TIMEOUT_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(180_000),
+  AGENT_RUN_TESTS: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((value) => value === "true" || value === "1"),
+  AGENT_REQUIRE_CHANGES: z
+    .enum(["true", "false", "1", "0"])
+    .default("true")
+    .transform((value) => value === "true" || value === "1"),
+  AGENT_TEST_COMMAND: optionalString,
+  AGENT_COMMAND_ALLOWLIST: z
+    .string()
+    .trim()
+    .default("npm,npx,node,pnpm,yarn,python,python3,pytest,go,cargo,make"),
+
+  GIT_AUTHOR_NAME: z.string().trim().min(1).default("TaskFleet Agent"),
+  GIT_AUTHOR_EMAIL: z
+    .string()
+    .trim()
+    .email()
+    .default("agent@taskfleet.local"),
 
   SECURITY_ENABLED: booleanFromEnv,
 });
@@ -55,21 +102,48 @@ export interface LLMConfig {
   timeoutMs: number;
 }
 
+export interface GitHubConfig {
+  token?: string;
+  repository?: string;
+  webhookSecret?: string;
+  baseBranch: string;
+  remoteUrl?: string;
+}
+
+export interface WorktreeConfig {
+  enabled: boolean;
+  root?: string;
+  keepOnFailure: boolean;
+  keepOnSuccess: boolean;
+}
+
+export interface AgentConfig {
+  maxSteps: number;
+  maxTokens: number;
+  maxToolCalls: number;
+  commandTimeoutMs: number;
+  testTimeoutMs: number;
+  runTests: boolean;
+  requireChanges: boolean;
+  testCommand?: string;
+  commandAllowlist: string[];
+}
+
+export interface GitConfig {
+  authorName: string;
+  authorEmail: string;
+}
+
 export interface AppConfig {
   nodeEnv: "development" | "test" | "production";
   port: number;
   host: string;
   databaseUrl: string;
   llm: LLMConfig;
-  github: {
-    token?: string;
-    repository?: string;
-    webhookSecret?: string;
-  };
-  worktrees: {
-    enabled: boolean;
-    root?: string;
-  };
+  github: GitHubConfig;
+  worktrees: WorktreeConfig;
+  agent: AgentConfig;
+  git: GitConfig;
   security: {
     enabled: boolean;
   };
@@ -124,10 +198,35 @@ export function loadConfig(
       ...(data.GITHUB_WEBHOOK_SECRET
         ? { webhookSecret: data.GITHUB_WEBHOOK_SECRET }
         : {}),
+      baseBranch: data.GITHUB_BASE_BRANCH,
+      ...(data.GITHUB_REMOTE_URL
+        ? { remoteUrl: data.GITHUB_REMOTE_URL }
+        : {}),
     },
     worktrees: {
       enabled: data.WORKTREES_ENABLED,
       ...(data.WORKTREES_ROOT ? { root: data.WORKTREES_ROOT } : {}),
+      keepOnFailure: data.WORKTREE_KEEP_ON_FAILURE,
+      keepOnSuccess: data.WORKTREE_KEEP_ON_SUCCESS,
+    },
+    agent: {
+      maxSteps: data.AGENT_MAX_STEPS,
+      maxTokens: data.AGENT_MAX_TOKENS,
+      maxToolCalls: data.AGENT_MAX_TOOL_CALLS,
+      commandTimeoutMs: data.AGENT_COMMAND_TIMEOUT_MS,
+      testTimeoutMs: data.AGENT_TEST_TIMEOUT_MS,
+      runTests: data.AGENT_RUN_TESTS,
+      requireChanges: data.AGENT_REQUIRE_CHANGES,
+      ...(data.AGENT_TEST_COMMAND
+        ? { testCommand: data.AGENT_TEST_COMMAND }
+        : {}),
+      commandAllowlist: data.AGENT_COMMAND_ALLOWLIST.split(",")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    },
+    git: {
+      authorName: data.GIT_AUTHOR_NAME,
+      authorEmail: data.GIT_AUTHOR_EMAIL,
     },
     security: {
       enabled: data.SECURITY_ENABLED,

@@ -165,7 +165,7 @@ describe("GitHub integration", () => {
         logger: false,
         config: {
           ...testConfig(db.config.databaseUrl),
-          github: { webhookSecret: SECRET },
+          github: { webhookSecret: SECRET, baseBranch: "main" },
         },
       });
       await app.ready();
