@@ -6,6 +6,9 @@ import type {
   DeleteResponse,
   HealthResponse,
   IntegrationsResponse,
+  RepositoryBootstrapInput,
+  RepositoryBootstrapResponse,
+  RepositoryStatusResponse,
   RunResponse,
   RunsResponse,
   ScanResponse,
@@ -237,6 +240,17 @@ export const api = {
 
   worktrees: {
     list: () => request<WorktreesResponse>("/worktrees"),
+  },
+
+  repository: {
+    status: () => request<RepositoryStatusResponse>("/repository"),
+
+    bootstrap: (input: RepositoryBootstrapInput) =>
+      request<RepositoryBootstrapResponse>("/repository", {
+        method: "POST",
+        body: input,
+        timeoutMs: 120_000,
+      }),
   },
 };
 

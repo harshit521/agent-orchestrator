@@ -3,6 +3,10 @@ import type { ZodError } from "zod";
 
 import type { Agent } from "../agents/base/agent.js";
 import type { AgentRegistry } from "../agents/registry.js";
+import {
+  RepositoryBootstrapError,
+  type RepositoryService,
+} from "../repositories/repository-service.js";
 import type { RunEventBus } from "../runs/event-bus.js";
 import type {
   AgentRunStats,
@@ -22,6 +26,7 @@ import {
   activityQuerySchema,
   createTaskSchema,
   listRunsQuerySchema,
+  repositoryBootstrapSchema,
   researchRequestSchema,
   updateTaskSchema,
 } from "./schemas.js";
@@ -57,6 +62,7 @@ export interface RouteDependencies {
   events: RunEventBus;
   runService: RunService;
   scheduler: SchedulerService;
+  repositories: RepositoryService;
   worktrees: {
     enabled: boolean;
     service: WorktreeService;
@@ -231,6 +237,35 @@ export function registerRoutes(
         ? await deps.worktrees.service.list()
         : [],
     };
+  });
+
+  app.get("/repository", async () => ({
+    success: true,
+    repository: await deps.repositories.status(),
+  }));
+
+  app.post("/repository", async (request, reply) => {
+    const parsed = repositoryBootstrapSchema.safeParse(request.body ?? {});
+
+    if (!parsed.success) {
+      return validationError(reply, parsed.error);
+    }
+
+    try {
+      const result = await deps.repositories.bootstrap(parsed.data);
+
+      return reply.status(201).send({ success: true, ...result });
+    } catch (error: unknown) {
+      if (error instanceof RepositoryBootstrapError) {
+        return reply.status(error.statusCode).send({
+          success: false,
+          error: error.message,
+          code: error.code,
+        });
+      }
+
+      throw error;
+    }
   });
 
   app.post("/tasks", async (request, reply) => {

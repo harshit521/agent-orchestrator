@@ -75,3 +75,42 @@ export const researchRequestSchema = z.object({
 });
 
 export type ResearchRequestBody = z.infer<typeof researchRequestSchema>;
+
+const repositoryNameSchema = z
+  .string()
+  .trim()
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/,
+    "Use letters, digits, dots, dashes, or underscores."
+  );
+
+export const repositoryBootstrapSchema = z
+  .object({
+    createGithub: z.boolean().default(false),
+    name: repositoryNameSchema.optional(),
+    description: z.string().trim().max(350).optional(),
+    private: z.boolean().default(true),
+    owner: z.string().trim().min(1).max(100).optional(),
+    organization: z.boolean().default(false),
+    initialCommitMessage: z.string().trim().min(1).max(200).optional(),
+    pushInitialBranch: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.createGithub && !value.name) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["name"],
+        message: "A repository name is required when creating GitHub.",
+      });
+    }
+
+    if (value.organization && !value.owner) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["owner"],
+        message: "An organization owner is required.",
+      });
+    }
+  });
+
+export type RepositoryBootstrapBody = z.infer<typeof repositoryBootstrapSchema>;

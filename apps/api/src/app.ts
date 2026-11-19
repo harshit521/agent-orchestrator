@@ -16,6 +16,7 @@ import { GitHubClient } from "./github/client.js";
 import { registerGithubRoutes } from "./http/github-routes.js";
 import { registerRoutes } from "./http/routes.js";
 import { registerSecurityRoutes } from "./http/security-routes.js";
+import { RepositoryService } from "./repositories/repository-service.js";
 import { RunEventBus } from "./runs/event-bus.js";
 import { RunService, type GitHubIntegration } from "./runs/run-service.js";
 import { RunStore } from "./runs/run-store.js";
@@ -96,6 +97,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     new WorktreeService({
       repoRoot: REPO_ROOT,
       worktreesRoot,
+      baseBranch: config.github.baseBranch,
       authorName: config.git.authorName,
       authorEmail: config.git.authorEmail,
     });
@@ -168,6 +170,28 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   lifecycle.attachScheduler(scheduler);
 
+  const githubStatus = {
+    repository: config.github.repository ?? null,
+    tokenConfigured: Boolean(config.github.token),
+    webhookConfigured: Boolean(config.github.webhookSecret),
+    prCreation: Boolean(github),
+    baseBranch: config.github.baseBranch,
+  };
+
+  const repositories = new RepositoryService({
+    worktrees: worktreeService,
+    baseBranch: config.github.baseBranch,
+    ...(config.github.token ? { githubToken: config.github.token } : {}),
+    ...(config.github.repository
+      ? { githubRepository: config.github.repository }
+      : {}),
+    onGithubConfigured: (integration) => {
+      lifecycle.attachGitHub(integration);
+      githubStatus.repository = integration.repository;
+      githubStatus.prCreation = true;
+    },
+  });
+
   app.addHook("onReady", async () => {
     try {
       await lifecycle.recoverInterruptedRuns();
@@ -183,6 +207,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     events,
     runService: lifecycle,
     scheduler,
+    repositories,
     worktrees: {
       enabled: config.worktrees.enabled,
       service: worktreeService,
@@ -196,13 +221,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         toolCalling: config.llm.provider !== "stub",
         live: config.llm.provider !== "stub",
       },
-      github: {
-        repository: config.github.repository ?? null,
-        tokenConfigured: Boolean(config.github.token),
-        webhookConfigured: Boolean(config.github.webhookSecret),
-        prCreation: Boolean(github),
-        baseBranch: config.github.baseBranch,
-      },
+      github: githubStatus,
       worktrees: {
         enabled: config.worktrees.enabled,
         root: worktreesRoot,

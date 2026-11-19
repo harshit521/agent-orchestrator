@@ -155,6 +155,117 @@ describe("GitHub integration", () => {
     });
   });
 
+  describe("repository creation client", () => {
+    it("creates a repository for the authenticated user", async () => {
+      let capturedUrl: string | undefined;
+      let capturedBody: unknown;
+      let capturedAuth: string | null | undefined;
+
+      const fetchImpl = (async (
+        input: string | URL | Request,
+        init?: RequestInit
+      ) => {
+        capturedUrl = String(input);
+        capturedBody = JSON.parse(String(init?.body));
+        capturedAuth = new Headers(init?.headers).get("authorization");
+
+        return new Response(
+          JSON.stringify({
+            name: "demo",
+            full_name: "acme/demo",
+            html_url: "https://github.com/acme/demo",
+            clone_url: "https://github.com/acme/demo.git",
+            ssh_url: "git@github.com:acme/demo.git",
+            default_branch: "main",
+            private: true,
+            owner: { login: "acme" },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const client = new GitHubClient({ token: "token", fetchImpl });
+
+      const created = await client.createRepository({
+        name: "demo",
+        description: "Demo project",
+        private: true,
+      });
+
+      expect(capturedUrl).toBe("https://api.github.com/user/repos");
+      expect(capturedAuth).toBe("Bearer token");
+      expect(capturedBody).toMatchObject({
+        name: "demo",
+        description: "Demo project",
+        private: true,
+        auto_init: false,
+      });
+      expect(created).toEqual({
+        name: "demo",
+        fullName: "acme/demo",
+        url: "https://github.com/acme/demo",
+        cloneUrl: "https://github.com/acme/demo.git",
+        sshUrl: "git@github.com:acme/demo.git",
+        defaultBranch: "main",
+        private: true,
+        owner: "acme",
+      });
+    });
+
+    it("creates a repository under an organization", async () => {
+      let capturedUrl: string | undefined;
+
+      const fetchImpl = (async (input: string | URL | Request) => {
+        capturedUrl = String(input);
+
+        return new Response(
+          JSON.stringify({
+            name: "demo",
+            full_name: "acme/demo",
+            html_url: "https://github.com/acme/demo",
+            clone_url: "https://github.com/acme/demo.git",
+            ssh_url: "git@github.com:acme/demo.git",
+            default_branch: "main",
+            private: true,
+            owner: { login: "acme" },
+          }),
+          { status: 201, headers: { "content-type": "application/json" } }
+        );
+      }) as typeof fetch;
+
+      const client = new GitHubClient({ token: "token", fetchImpl });
+
+      await client.createRepository({
+        name: "demo",
+        owner: "acme",
+        organization: true,
+      });
+
+      expect(capturedUrl).toBe("https://api.github.com/orgs/acme/repos");
+    });
+
+    it("reports GitHub errors and refuses PRs without a repository", async () => {
+      const fetchImpl = (async () =>
+        new Response("name already exists", {
+          status: 422,
+        })) as typeof fetch;
+
+      const client = new GitHubClient({ token: "token", fetchImpl });
+
+      await expect(
+        client.createRepository({ name: "demo" })
+      ).rejects.toMatchObject({ status: 422 });
+
+      await expect(
+        client.createPullRequest({
+          title: "TaskFleet",
+          head: "taskfleet/run-1",
+          base: "main",
+        })
+      ).rejects.toThrow("repository is not configured");
+    });
+  });
+
   describe("webhook route", () => {
     let db: TestDatabase;
     let app: FastifyInstance;

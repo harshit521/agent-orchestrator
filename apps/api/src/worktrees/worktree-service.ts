@@ -8,7 +8,9 @@ const run = promisify(execFile);
 
 const BRANCH_PREFIX = "taskfleet/";
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+const SAFE_BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 const MAX_DIFF_CHARS = 200_000;
+const DEFAULT_INITIAL_COMMIT = "Initial commit";
 
 export interface Worktree {
   taskId: string;
@@ -42,9 +44,48 @@ export interface WorktreeServiceOptions {
   repoRoot: string;
   /** Directory that holds the per-run worktrees. */
   worktreesRoot: string;
+  /** Branch used when the repository has to be initialized. */
+  baseBranch?: string;
   gitBinary?: string;
   authorName?: string;
   authorEmail?: string;
+}
+
+export interface RepositoryBootstrapOptions {
+  /** Message for the first commit when the repository has no HEAD. */
+  initialCommitMessage?: string;
+}
+
+export interface RepositoryBootstrapResult {
+  repoRoot: string;
+  baseBranch: string;
+  initialized: boolean;
+  initialCommitCreated: boolean;
+}
+
+function assertSafeBranch(branch: string, label = "branch"): void {
+  if (
+    !SAFE_BRANCH.test(branch) ||
+    branch.includes("..") ||
+    branch.endsWith("/") ||
+    branch.endsWith(".lock")
+  ) {
+    throw new Error(`Unsafe ${label}: ${branch}`);
+  }
+}
+
+function assertHttpsRemote(remoteUrl: string): void {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(remoteUrl);
+  } catch {
+    throw new Error(`Invalid Git remote URL: ${remoteUrl}`);
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Git remote URL must use HTTPS.");
+  }
 }
 
 export function branchForTask(taskId: string): string {
@@ -83,29 +124,97 @@ function assertSafeId(value: string, label: string): void {
 export class WorktreeService {
   readonly #repoRoot: string;
   readonly #worktreesRoot: string;
+  readonly #baseBranch: string;
   readonly #git: string;
   readonly #authorName: string;
   readonly #authorEmail: string;
+  #bootstrap: Promise<RepositoryBootstrapResult> | null = null;
 
   constructor(options: WorktreeServiceOptions) {
-  this.#repoRoot = path.resolve(options.repoRoot);
-  this.#worktreesRoot = path.resolve(options.worktreesRoot);
+    this.#repoRoot = path.resolve(options.repoRoot);
+    this.#worktreesRoot = path.resolve(options.worktreesRoot);
 
-  // Allow Render/production to provide an explicit Git binary.
-  // Locally, fall back to the normal `git` command.
-  this.#git = options.gitBinary ?? process.env.GIT_BINARY ?? "git";
+    // Allow Render/production to provide an explicit Git binary.
+    // Locally, fall back to the normal `git` command.
+    this.#git = options.gitBinary ?? process.env.GIT_BINARY ?? "git";
 
-  this.#authorName = options.authorName ?? "TaskFleet Agent";
-  this.#authorEmail = options.authorEmail ?? "agent@taskfleet.local";
-}
+    this.#baseBranch = options.baseBranch ?? "main";
+    assertSafeBranch(this.#baseBranch, "base branch");
+
+    this.#authorName = options.authorName ?? "TaskFleet Agent";
+    this.#authorEmail = options.authorEmail ?? "agent@taskfleet.local";
+  }
+
+  get repoRoot(): string {
+    return this.#repoRoot;
+  }
 
   get worktreesRoot(): string {
     return this.#worktreesRoot;
   }
 
+  get baseBranch(): string {
+    return this.#baseBranch;
+  }
+
+  /**
+   * Makes the configured workspace usable as a repository. Existing Git
+   * repositories are preserved exactly as they are; a non-repository is
+   * initialized with the configured author identity and an initial commit so
+   * `git worktree add` has a HEAD to branch from.
+   */
+  async ensureRepository(
+    options: RepositoryBootstrapOptions = {}
+  ): Promise<RepositoryBootstrapResult> {
+    // Concurrent runs can start together. Share one initialization so two
+    // `git init`/commit sequences cannot race each other.
+    if (!this.#bootstrap) {
+      this.#bootstrap = this.#ensureRepositoryOnce(options).finally(() => {
+        this.#bootstrap = null;
+      });
+    }
+
+    return this.#bootstrap;
+  }
+
+  async #ensureRepositoryOnce(
+    options: RepositoryBootstrapOptions
+  ): Promise<RepositoryBootstrapResult> {
+    await mkdir(this.#repoRoot, { recursive: true });
+
+    let initialized = false;
+
+    if (!(await this.isGitRepository())) {
+      await this.#gitRun(["init"], this.#repoRoot);
+      await this.#gitRun(
+        ["symbolic-ref", "HEAD", `refs/heads/${this.#baseBranch}`],
+        this.#repoRoot
+      );
+      initialized = true;
+    }
+
+    if (initialized) {
+      // Only brand-new repositories get a local identity. Existing
+      // repositories keep whatever identity their owner configured.
+      await this.#configureIdentity(this.#repoRoot);
+    }
+
+    const initialCommitCreated = await this.#ensureInitialCommit(
+      options.initialCommitMessage?.trim() || DEFAULT_INITIAL_COMMIT
+    );
+
+    return {
+      repoRoot: this.#repoRoot,
+      baseBranch: this.#baseBranch,
+      initialized,
+      initialCommitCreated,
+    };
+  }
+
   /** Legacy per-task worktree used by the integrations page and old tests. */
   async create(taskId: string): Promise<Worktree> {
     assertSafeId(taskId, "task id");
+    await this.ensureRepository();
 
     const branch = branchForTask(taskId);
     const worktreePath = path.join(this.#worktreesRoot, taskId);
@@ -140,6 +249,7 @@ export class WorktreeService {
   async ensureForRun(taskId: string, runId: string): Promise<Worktree> {
     assertSafeId(taskId, "task id");
     assertSafeId(runId, "run id");
+    await this.ensureRepository();
 
     const branch = branchForRun(runId);
     const worktreePath = path.join(this.#worktreesRoot, runId);
@@ -301,6 +411,76 @@ export class WorktreeService {
     }
   }
 
+  /** Returns the configured remote URL, or null when the remote is absent. */
+  async getRemote(name = "origin"): Promise<string | null> {
+    try {
+      const { stdout } = await this.#gitRun(
+        ["remote", "get-url", name],
+        this.#repoRoot
+      );
+      const value = stdout.trim();
+
+      return value.length > 0 ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Sets (or replaces) a named remote at the repository root. The URL is
+   * stored as-is so credentials never end up in `.git/config`.
+   */
+  async configureRemote(remoteUrl: string, name = "origin"): Promise<void> {
+    if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+      throw new Error(`Unsafe remote name: ${name}`);
+    }
+
+    assertHttpsRemote(remoteUrl);
+
+    if (await this.getRemote(name)) {
+      await this.#gitRun(
+        ["remote", "set-url", name, remoteUrl],
+        this.#repoRoot
+      );
+      return;
+    }
+
+    await this.#gitRun(
+      ["remote", "add", name, remoteUrl],
+      this.#repoRoot
+    );
+  }
+
+  /**
+   * Pushes the repository's current HEAD to a branch without using a
+   * worktree. Used once after creating a new GitHub repository so the base
+   * branch exists before the first agent PR.
+   */
+  async pushHead(
+    branch: string,
+    options: { remoteUrl: string; token: string }
+  ): Promise<void> {
+    assertSafeBranch(branch);
+    assertHttpsRemote(options.remoteUrl);
+
+    const authenticated = authenticatedRemote(options.remoteUrl, options.token);
+
+    try {
+      await this.#gitRun(
+        ["push", authenticated, `HEAD:refs/heads/${branch}`],
+        this.#repoRoot,
+        { redact: [options.token, authenticated] }
+      );
+    } catch (error: unknown) {
+      throw new Error(
+        redactSecrets(
+          error instanceof Error ? error.message : String(error),
+          [options.token, authenticated]
+        )
+      );
+    }
+  }
+
   async status(worktree: Worktree): Promise<{
     clean: boolean;
     branch: string;
@@ -416,6 +596,38 @@ export class WorktreeService {
     } catch {
       return false;
     }
+  }
+
+  async #headExists(): Promise<boolean> {
+    try {
+      await this.#gitRun(["rev-parse", "--verify", "HEAD"], this.#repoRoot);
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async #ensureInitialCommit(message: string): Promise<boolean> {
+    if (await this.#headExists()) {
+      return false;
+    }
+
+    await this.#gitRun(["add", "-A"], this.#repoRoot);
+    await this.#gitRun(
+      ["commit", "--allow-empty", "-m", message],
+      this.#repoRoot,
+      {
+        env: {
+          GIT_AUTHOR_NAME: this.#authorName,
+          GIT_AUTHOR_EMAIL: this.#authorEmail,
+          GIT_COMMITTER_NAME: this.#authorName,
+          GIT_COMMITTER_EMAIL: this.#authorEmail,
+        },
+      }
+    );
+
+    return true;
   }
 
   async #configureIdentity(worktreePath: string): Promise<void> {

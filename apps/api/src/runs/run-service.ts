@@ -3,7 +3,7 @@ import type { AgentContext } from "../agents/base/agent-context.js";
 import type { AgentResult } from "../agents/base/agent-result.js";
 import type { AgentRegistry } from "../agents/registry.js";
 import type { AppConfig } from "../config.js";
-import type { GitHubClient } from "../github/client.js";
+import type { GitHubIntegration } from "../github/integration.js";
 import type {
   SecurityGate,
   SecurityPolicy,
@@ -40,12 +40,7 @@ export interface LoggerLike {
   error(payload: Record<string, unknown>, message?: string): void;
 }
 
-export interface GitHubIntegration {
-  client: GitHubClient;
-  repository: string;
-  baseBranch: string;
-  remoteUrl?: string;
-}
+export type { GitHubIntegration } from "../github/integration.js";
 
 export interface RunServiceDeps {
   store: RunStore;
@@ -118,7 +113,7 @@ export class RunService {
   readonly #logger: LoggerLike;
   readonly #config: AppConfig;
   readonly #worktrees: RunServiceDeps["worktrees"];
-  readonly #github: GitHubIntegration | null;
+  #github: GitHubIntegration | null;
   readonly #security: SecurityGate | null;
   readonly #controllers = new Map<string, AbortController>();
   readonly #activeRuns = new Set<string>();
@@ -212,6 +207,15 @@ export class RunService {
 
   attachScheduler(scheduler: RunScheduler): void {
     this.#scheduler = scheduler;
+  }
+
+  /**
+   * Replaces the runtime GitHub integration. Repository bootstrap calls this
+   * after creating a repository so later runs can push and open PRs without
+   * restarting the API.
+   */
+  attachGitHub(github: GitHubIntegration | null): void {
+    this.#github = github;
   }
 
   /**

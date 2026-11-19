@@ -1,10 +1,14 @@
+import { useState } from "react";
+
 import { API_BASE, api, githubWebhookUrl } from "../api";
 import { useQuery } from "../hooks/useQuery";
+import { messageOf } from "../lib/errors";
 import { formatDuration } from "../lib/format";
 import { hrefFor } from "../lib/router";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { CopyButton } from "../components/ui/CopyButton";
+import { Checkbox, FormField, Input } from "../components/ui/Field";
 import { Icon } from "../components/ui/Icon";
 import { PageHeader } from "../components/ui/PageHeader";
 import {
@@ -19,6 +23,7 @@ import {
   InlineError,
   Skeleton,
 } from "../components/ui/States";
+import { useToast } from "../components/ui/Toast";
 
 function BoolBadge({
   value,
@@ -37,6 +42,183 @@ function BoolBadge({
     <Badge tone={positive ? "success" : "warning"} dot>
       {value ? trueLabel : falseLabel}
     </Badge>
+  );
+}
+
+function RepositoryPanel({
+  githubTokenConfigured,
+  onConfigured,
+}: {
+  githubTokenConfigured: boolean;
+  onConfigured: () => void;
+}) {
+  const repository = useQuery("repository", api.repository.status, {
+    refreshInterval: 30_000,
+  });
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [makePrivate, setMakePrivate] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const data = repository.data?.repository ?? null;
+
+  const bootstrap = async (createGithub: boolean) => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await api.repository.bootstrap(
+        createGithub
+          ? { createGithub: true, name: name.trim(), private: makePrivate }
+          : {}
+      );
+
+      const pushed = result.initialPush?.pushed;
+
+      toast({
+        title: createGithub
+          ? "GitHub repository created"
+          : "Workspace initialized",
+        description: createGithub
+          ? `${result.github?.fullName ?? "Repository"} configured as origin${
+              pushed ? ` and ${result.initialPush?.branch} was pushed.` : "."
+            }`
+          : "The local Git repository is ready for worktrees.",
+        variant: "success",
+      });
+
+      if (createGithub) {
+        setName("");
+      }
+
+      repository.refetch();
+      onConfigured();
+    } catch (cause: unknown) {
+      setError(messageOf(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="Repository"
+        description="Git workspace and GitHub origin used by coding runs"
+        action={
+          <Badge
+            tone={data?.isGitRepository ? "success" : "warning"}
+            dot
+          >
+            {data?.isGitRepository ? "initialized" : "not initialized"}
+          </Badge>
+        }
+      />
+      <PanelBody>
+        {repository.error && !data ? (
+          <InlineError
+            message={repository.error}
+            onRetry={repository.refetch}
+          />
+        ) : repository.loading && !data ? (
+          <Skeleton className="h-16 w-full" />
+        ) : (
+          <>
+            <MetadataGrid
+              items={[
+                {
+                  label: "Workspace",
+                  value: data?.repoRoot ?? "unknown",
+                  mono: true,
+                },
+                {
+                  label: "Base branch",
+                  value: data?.baseBranch ?? "main",
+                  mono: true,
+                },
+                {
+                  label: "Origin",
+                  value: data?.originUrl ?? "not configured",
+                  mono: true,
+                },
+                {
+                  label: "GitHub",
+                  value: data?.githubRepository ?? "not connected",
+                  mono: true,
+                },
+              ]}
+            />
+
+            {error ? (
+              <p className="mt-3 rounded-md border border-danger/25 bg-danger-soft px-3 py-2 text-[11px] leading-5 text-danger">
+                {error}
+              </p>
+            ) : null}
+
+            {!data?.isGitRepository ? (
+              <div className="mt-4 border-t border-line pt-4">
+                <p className="text-[11px] leading-5 text-muted">
+                  The workspace is not a Git repository yet. Initialize it with
+                  TaskFleet's author identity and an initial commit before
+                  starting a coding run.
+                </p>
+                <Button
+                  className="mt-3"
+                  size="sm"
+                  variant="secondary"
+                  loading={busy}
+                  onClick={() => void bootstrap(false)}
+                >
+                  Initialize workspace
+                </Button>
+              </div>
+            ) : null}
+
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="text-[10px] font-medium tracking-[0.08em] text-muted uppercase">
+                Create a GitHub repository
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <FormField
+                  label="Repository name"
+                  htmlFor="repository-name"
+                  hint={
+                    githubTokenConfigured
+                      ? "Created under the token owner and configured as origin."
+                      : "Set GITHUB_TOKEN to create a repository."
+                  }
+                >
+                  <Input
+                    id="repository-name"
+                    value={name}
+                    placeholder="my-new-project"
+                    onChange={(event) => setName(event.target.value)}
+                    disabled={!githubTokenConfigured || busy}
+                  />
+                </FormField>
+                <Button
+                  size="sm"
+                  loading={busy}
+                  disabled={!githubTokenConfigured || name.trim().length === 0}
+                  onClick={() => void bootstrap(true)}
+                >
+                  Create repository
+                </Button>
+              </div>
+              <Checkbox
+                className="mt-3"
+                label="Private repository"
+                description="Disable to create a public repository."
+                checked={makePrivate}
+                disabled={!githubTokenConfigured || busy}
+                onChange={(event) => setMakePrivate(event.target.checked)}
+              />
+            </div>
+          </>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -322,6 +504,14 @@ export function IntegrationsPage() {
           </PanelBody>
         </Panel>
       </div>
+
+      <RepositoryPanel
+        githubTokenConfigured={data.github.tokenConfigured}
+        onConfigured={() => {
+          integrations.refetch();
+          worktrees.refetch();
+        }}
+      />
 
       <Panel>
         <PanelHeader

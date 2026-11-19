@@ -288,6 +288,60 @@ export interface WorktreesResponse {
   worktrees: Worktree[];
 }
 
+export interface RepositoryStatus {
+  repoRoot: string;
+  baseBranch: string;
+  isGitRepository: boolean;
+  originUrl: string | null;
+  githubRepository: string | null;
+}
+
+export interface RepositoryStatusResponse {
+  success: boolean;
+  repository: RepositoryStatus;
+}
+
+export interface RepositoryBootstrapInput {
+  createGithub?: boolean;
+  name?: string;
+  description?: string;
+  private?: boolean;
+  owner?: string;
+  organization?: boolean;
+  initialCommitMessage?: string;
+  pushInitialBranch?: boolean;
+}
+
+export interface CreatedRepository {
+  name: string;
+  fullName: string;
+  url: string;
+  cloneUrl: string;
+  sshUrl: string;
+  defaultBranch: string;
+  private: boolean;
+  owner: string;
+}
+
+export interface RepositoryInitialPush {
+  pushed: boolean;
+  branch: string;
+  error?: string;
+}
+
+export interface RepositoryBootstrapResponse {
+  success: boolean;
+  local: {
+    repoRoot: string;
+    baseBranch: string;
+    initialized: boolean;
+    initialCommitCreated: boolean;
+  };
+  originUrl: string | null;
+  github: CreatedRepository | null;
+  initialPush: RepositoryInitialPush | null;
+}
+
 export interface SecurityTool {
   id: string;
   label: string;
